@@ -1,37 +1,43 @@
 pipeline {
     agent any
 
-    options{
-        // Max number of build logs to keep and days to keep
+    options {
         buildDiscarder(logRotator(numToKeepStr: '5', daysToKeepStr: '5'))
-        // Enable timestamp at each job in the pipeline
         timestamps()
     }
 
-    environment{
+    environment {
         registry = 'quandvrobusto/house-price-prediction-api'
-        registryCredential = 'dockerhub'      
+        registryCredential = 'dockerhub'
+        dockerImage = ''
     }
 
     stages {
         stage('Test') {
-            agent {
-                docker {
-                    image 'python:3.8' 
-                }
-            }
             steps {
                 echo 'Testing model correctness..'
-                sh 'pip install -r requirements.txt && pytest'
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install -r requirements.txt
+                    pytest
+                    deactivate
+                '''
             }
         }
         stage('Build') {
             steps {
                 script {
                     echo 'Building image for deployment..'
-                    dockerImage = docker.build registry + ":$BUILD_NUMBER" 
+                    dockerImage = docker.build(registry + ":$BUILD_NUMBER")
+                }
+            }
+        }
+        stage('Push') {
+            steps {
+                script {
                     echo 'Pushing image to dockerhub..'
-                    docker.withRegistry( '', registryCredential ) {
+                    docker.withRegistry('https://index.docker.io/v1/', registryCredential) {
                         dockerImage.push()
                         dockerImage.push('latest')
                     }
@@ -42,7 +48,16 @@ pipeline {
             steps {
                 echo 'Deploying models..'
                 echo 'Running a script to trigger pull and start a docker container'
+                // Add your deployment steps here
             }
+        }
+    }
+
+    post {
+        always {
+            echo 'Cleaning up..'
+            sh 'docker rmi $registry:$BUILD_NUMBER'
+            sh 'docker rmi $registry:latest'
         }
     }
 }
